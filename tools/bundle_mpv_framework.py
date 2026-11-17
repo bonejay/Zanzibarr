@@ -257,9 +257,10 @@ def bundle_moltenvk():
     """MoltenVK'yı ve ICD manifestini framework'e gömer.
 
     vf_libplacebo gibi Vulkan zorunlu filtreler uygulama içinde gerçek bir
-    sürücü bulamaz; MoltenVK, Metal üzerinden Vulkan sağlar. Manifest,
-    dylib ile aynı dizinde durur ve göreli yolla ona işaret eder; çalışma
-    zamanında VK_ICD_FILENAMES bu dosyaya yönlendirilir (Rust tarafı).
+    sürücü bulamaz; MoltenVK, Metal üzerinden Vulkan sağlar. ICD manifesti
+    kod olmadığı için Versions/A/Frameworks yerine Resources altında durur;
+    aksi halde codesign onu nested code sanıp framework'ü reddeder. Manifest,
+    dylib'e göreli yolla işaret eder ve Rust VK_ICD_FILENAMES'i buraya kurar.
     """
     src = os.path.realpath("/opt/homebrew/lib/libMoltenVK.dylib")
     if not os.path.exists(src):
@@ -269,11 +270,11 @@ def bundle_moltenvk():
     run(["chmod", "u+w", str(dest)])
     run(["install_name_tool", "-id", "@rpath/libMoltenVK.dylib", str(dest)])
     rewrite_names(dest)
-    (NESTED / "MoltenVK_icd.json").write_text(
+    (FW_DIR / "Versions/A/Resources/MoltenVK_icd.json").write_text(
         '{\n'
         '    "file_format_version" : "1.0.0",\n'
         '    "ICD": {\n'
-        '        "library_path": "./libMoltenVK.dylib",\n'
+        '        "library_path": "../Frameworks/libMoltenVK.dylib",\n'
         '        "api_version" : "1.4.0",\n'
         '        "is_portability_driver" : true\n'
         "    }\n"
@@ -286,3 +287,10 @@ if __name__ == "__main__":
     main()
     override_ffmpeg(os.environ.get("FFMPEG_PREFIX"))
     bundle_moltenvk()
+
+    # Sign the complete bundle only after every binary and resource is final:
+    # this binds Info.plist and creates _CodeSignature/CodeResources. Without
+    # the resource envelope, codesign --strict and Gatekeeper reject the
+    # nested framework on macOS 27.
+    run(["codesign", "--force", "--sign", "-", str(FW_DIR)])
+    run(["codesign", "--verify", "--deep", "--strict", str(FW_DIR)])

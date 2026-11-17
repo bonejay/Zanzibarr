@@ -31,7 +31,7 @@ fn configure_bundled_vulkan_driver() {
         return;
     };
     let manifest = macos_dir.join(
-        "../Frameworks/Mpv.framework/Versions/A/Frameworks/MoltenVK_icd.json",
+        "../Frameworks/Mpv.framework/Versions/A/Resources/MoltenVK_icd.json",
     );
     if manifest.exists() {
         std::env::set_var("VK_ICD_FILENAMES", &manifest);
