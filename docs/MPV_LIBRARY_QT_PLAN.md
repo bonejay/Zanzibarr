@@ -75,6 +75,17 @@ void zz_free(char*);
 
 `zz_open` is blocking and cancellable by `zz_cancel`. The app calls it off the UI thread.
 
+### Performance details
+
+What dominates is NNTP latency and throughput; the local transport is the smaller cost. Removing HTTP gets rid of the overhead we can control, and the following keep the network side tight:
+
+- **Direct buffer fill.** `zz_read` copies from the cached, decoded segment straight into mpv's buffer: one copy, no socket buffers, no HTTP framing. (Decoding needs its own buffer regardless: TLS, yEnc and archive reconstruction.)
+- **Article-aligned cache.** The engine already caches whole decoded articles, so mpv's small reads (often 64 KiB to 1 MiB) are memcpys out of a segment held in RAM.
+- **Seek-aware cancellation.** On a cache miss at a new position, the engine bumps `prefetch_gen`, and queued prefetches for the old position are dropped (`nntp_source.rs`, `spawn_prefetch_one`). **Gap:** fetches already in flight run to completion and occupy connections. Engine change: race each prefetch fetch against a generation-change notify and drop it, so a seek gets every connection immediately.
+- **Prefetch depth vs connections.** Depth is 8 segments for direct files and 4 for archives. Tune it against the account's connection count while Atlas indexes on the same account. Measure seek-to-first-frame at depth 4/8/16.
+- **One cache layer to size.** mpv's demuxer cache (`demuxer-max-bytes`, readahead) and the engine's segment cache both hold data. Keep mpv's cache for demuxing smoothness and the engine's small (32–64 segments), and measure.
+- **Since we build our own libmpv,** deeper options are open later (a native `stream_usenet` inside mpv, or tuning stream buffer sizes). `stream_cb` needs no changes to the fork, so start there and only go deeper if profiling shows the callback layer costs anything.
+
 Engine changes worth making (as separate commits, so they can go upstream too):
 1. Make `api::streaming` take NZB **bytes** as well as a path (Atlas hands over bytes; no temp file).
 2. Make the segment-cache size configurable per session. The default of 256 segments is about 180 MiB at 700 KiB articles. mpv already keeps its own demuxer cache, so start the engine at 32–64 segments and measure.
